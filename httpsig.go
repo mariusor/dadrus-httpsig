@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"errors"
 	"net/http"
+	"slices"
 )
 
 var (
@@ -58,6 +59,10 @@ const (
 	componentIdentifierContentDigest = "content-digest"
 )
 
+type SignatureAlgorithmMatcher interface {
+	Matches(other SignatureAlgorithm) bool
+}
+
 // SignatureAlgorithm is the signature algorithm to use.
 // Available algorithms are:
 // - RSASSA-PKCS1-v1_5 using SHA-256 (rsa-v1_5-sha256).
@@ -68,7 +73,18 @@ const (
 // - HMAC using SHA-256 (hmac-sha256).
 type SignatureAlgorithm string
 
+func (s SignatureAlgorithm) Matches(other SignatureAlgorithm) bool {
+	return s == other
+}
+
+type SignatureAlgorithms []SignatureAlgorithm
+
+func (s SignatureAlgorithms) Matches(other SignatureAlgorithm) bool {
+	return slices.Contains(s, other)
+}
+
 const (
+	Unknown           SignatureAlgorithm = ""
 	RsaPkcs1v15Sha256 SignatureAlgorithm = "rsa-v1_5-sha256"
 	RsaPkcs1v15Sha384 SignatureAlgorithm = "rsa-v1_5-sha384"
 	RsaPkcs1v15Sha512 SignatureAlgorithm = "rsa-v1_5-sha512"

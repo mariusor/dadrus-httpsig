@@ -1338,6 +1338,78 @@ func TestVerifierVerify(t *testing.T) {
 			},
 		},
 		{
+			uc: "signature fails due to expecting PKCS v1_5 algorithm in signature",
+			opts: []VerifierOption{
+				WithValidateAllSignatures(),
+				WithCreatedTimestampRequired(false),
+				WithExpiredTimestampRequired(false),
+				WithSignatureAlgorithmPreferences(RsaPkcs1v15Sha512),
+			},
+			msg: &Message{
+				Method:    http.MethodPost,
+				Authority: "example.com",
+				URL:       testURL,
+				Header: http.Header{
+					"Host":            []string{"example.com"},
+					"Date":            []string{"Tue, 20 Apr 2021 02:07:55 GMT"},
+					"Content-Type":    []string{"application/json"},
+					"Content-Digest":  []string{"sha-512=:WZDPaVn/7XgHaAy8pmojAkGWoRx2UFChF41A2svX+TaPm+AbwAgBWnrIiYllu7BNNyealdVLvRwEmTHWXvJwew==:"},
+					"Content-Length":  []string{"18"},
+					"Signature-Input": []string{`sig-b21=();created=1618884473;keyid="test-key-rsa-pss";nonce="b3k2pp5k7z-50gnwp.yemd"`},
+					"Signature":       []string{"sig-b21=:d2pmTvmbncD3xQm8E9ZV2828BjQWGgiwAaw5bAkgibUopemLJcWDy/lkbbHAve4cRAtx31Iq786U7it++wgGxbtRxf8Udx7zFZsckzXaJMkA7ChG52eSkFxykJeNqsrWH5S+oxNFlD4dzVuwe8DhTSja8xxbR/Z2cOGdCbzR72rgFWhzx2VjBqJzsPLMIQKhO4DGezXehhWwE56YCE+O6c0mKZsfxVrogUvA4HELjVKWmAvtl6UnCh8jYzuVG5WSb/QEVPnP5TmcAnLH1g+s++v6d4s8m0gCw1fV5/SITLq9mhho8K3+7EPYTU8IU1bLhdxO5Nyt8C8ssinQ98Xw9Q==:"},
+				},
+				IsRequest: true,
+			},
+			configureResolver: func(t *testing.T, kr *KeyResolverMock) {
+				t.Helper()
+
+				kr.EXPECT().ResolveKey(mock.Anything, "test-key-rsa-pss").Return(
+					Key{Key: tkRSAPSS, KeyID: "test-key-rsa-pss", Algorithm: RsaPssSha512}, nil)
+			},
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
+				require.Error(t, err)
+				require.ErrorIs(t, err, ErrParameter)
+				require.ErrorContains(t, err, "no key algorithm was provided")
+			},
+		},
+		{
+			uc: "signature fails due no signature algorithm being present",
+			opts: []VerifierOption{
+				WithValidateAllSignatures(),
+				WithCreatedTimestampRequired(false),
+				WithExpiredTimestampRequired(false),
+			},
+			msg: &Message{
+				Method:    http.MethodPost,
+				Authority: "example.com",
+				URL:       testURL,
+				Header: http.Header{
+					"Host":            []string{"example.com"},
+					"Date":            []string{"Tue, 20 Apr 2021 02:07:55 GMT"},
+					"Content-Type":    []string{"application/json"},
+					"Content-Digest":  []string{"sha-512=:WZDPaVn/7XgHaAy8pmojAkGWoRx2UFChF41A2svX+TaPm+AbwAgBWnrIiYllu7BNNyealdVLvRwEmTHWXvJwew==:"},
+					"Content-Length":  []string{"18"},
+					"Signature-Input": []string{`sig-b21=();created=1618884473;keyid="test-key-rsa-pss";nonce="b3k2pp5k7z-50gnwp.yemd"`},
+					"Signature":       []string{"sig-b21=:d2pmTvmbncD3xQm8E9ZV2828BjQWGgiwAaw5bAkgibUopemLJcWDy/lkbbHAve4cRAtx31Iq786U7it++wgGxbtRxf8Udx7zFZsckzXaJMkA7ChG52eSkFxykJeNqsrWH5S+oxNFlD4dzVuwe8DhTSja8xxbR/Z2cOGdCbzR72rgFWhzx2VjBqJzsPLMIQKhO4DGezXehhWwE56YCE+O6c0mKZsfxVrogUvA4HELjVKWmAvtl6UnCh8jYzuVG5WSb/QEVPnP5TmcAnLH1g+s++v6d4s8m0gCw1fV5/SITLq9mhho8K3+7EPYTU8IU1bLhdxO5Nyt8C8ssinQ98Xw9Q==:"},
+				},
+				IsRequest: true,
+			},
+			configureResolver: func(t *testing.T, kr *KeyResolverMock) {
+				t.Helper()
+
+				kr.EXPECT().ResolveKey(mock.Anything, "test-key-rsa-pss").Return(
+					Key{Key: tkRSAPSS, KeyID: "test-key-rsa-pss", Algorithm: Unknown}, nil)
+			},
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
+				require.Error(t, err)
+				require.ErrorIs(t, err, ErrUnsupportedAlgorithm)
+			},
+		},
+		{
 			// https://www.rfc-editor.org/rfc/rfc9421.html#name-minimal-signature-using-rsa
 			uc: "B.2.1. minimal signature using rsa-pss-sha512",
 			opts: []VerifierOption{

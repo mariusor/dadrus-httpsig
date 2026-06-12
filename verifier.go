@@ -59,6 +59,18 @@ func WithRequiredComponents(identifiers ...string) VerifierOption {
 	}
 }
 
+func WithSignatureAlgorithmPreferences(prefs ...SignatureAlgorithm) VerifierOption {
+	return func(_ *verifier, e *expectations, _ bool) error {
+		if len(prefs) == 0 {
+			return nil
+		}
+
+		e.validKeyAlgs = SignatureAlgorithms(prefs)
+
+		return nil
+	}
+}
+
 // WithValidityTolerance sets the clock tolerance for verifying created and expires times.
 func WithValidityTolerance(d time.Duration) VerifierOption {
 	return func(_ *verifier, e *expectations, _ bool) error {
@@ -274,8 +286,41 @@ type expectations struct {
 	maxAge       time.Duration
 	identifiers  []*componentIdentifier
 	asb          *AcceptSignatureBuilder
+	validKeyAlgs SignatureAlgorithmMatcher
 	reqCreatedTS *bool
 	reqExpiresTS *bool
+}
+
+func (e *expectations) assertKeyAlgorithm(params *signatureParameters, keyAlg SignatureAlgorithm) error {
+	// NOTE(marius): if the keyAlg is known, but no signature algorithm was provided in the parameters,
+	// and no expected algorithms were set by the caller, we will use the key signature algorithm.
+	if keyAlg != Unknown && params.alg == Unknown && e.validKeyAlgs == nil {
+		return nil
+	}
+
+	// NOTE(marius): if both are present, they must match - this is the old validity check
+	if keyAlg != Unknown && params.alg != Unknown && params.alg != keyAlg {
+		return fmt.Errorf("%w: key algorithm %s does not match signature algorithm %s",
+			ErrParameter, params.alg, keyAlg)
+	}
+
+	algToCheck := keyAlg
+	if algToCheck == Unknown {
+		algToCheck = params.alg
+	}
+
+	// NOTE(marius): if we have an algorithm, either form the key or from the signature parameters,
+	// we check that it matches the valid key algorithms demanded by the caller.
+	if e.validKeyAlgs != nil && !e.validKeyAlgs.Matches(algToCheck) {
+		if algToCheck == Unknown {
+			return fmt.Errorf("%w: no key algorithm was provided", ErrParameter)
+		}
+
+		return fmt.Errorf("%w: signature algorithm %s does not match expected signature algorithm(s) %s",
+			ErrParameter, algToCheck, e.validKeyAlgs)
+	}
+
+	return nil
 }
 
 //nolint:cyclop
@@ -303,9 +348,8 @@ func (e *expectations) assert(
 		return fmt.Errorf("%w: nonce validation failed: %w", ErrParameter, err)
 	}
 
-	if len(params.alg) != 0 && params.alg != keyAlg {
-		return fmt.Errorf("%w: key algorithm %s does not match signature algorithm %s",
-			ErrParameter, params.alg, keyAlg)
+	if err := e.assertKeyAlgorithm(params, keyAlg); err != nil {
+		return err
 	}
 
 	now := currentTime().UTC()
@@ -488,11 +532,16 @@ func (v *verifier) verifySignature(
 		return err
 	}
 
+	algorithm := key.Algorithm
 	if err = exp.assert(params, msg, key.Algorithm, v.nonceChecker); err != nil {
 		return err
 	}
 
-	verifier, err := newPayloadVerifier(key.Key, key.KeyID, key.Algorithm)
+	if algorithm == Unknown {
+		algorithm = params.alg
+	}
+
+	verifier, err := newPayloadVerifier(key.Key, key.KeyID, algorithm)
 	if err != nil {
 		return err
 	}
